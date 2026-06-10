@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from ultralytics import YOLO
 
 CLIPS_DIR = Path(__file__).resolve().parent / "motion_detection_clips"
 
@@ -13,6 +14,7 @@ def run_motion_detection(camera_index: int=0) -> None:
     # apply thresholds like blurring and contouring
 
     cap = cv2.VideoCapture(camera_index)
+    model = YOLO("yolov8n.pt")
     last_gray = None
 
     recording = False
@@ -26,7 +28,7 @@ def run_motion_detection(camera_index: int=0) -> None:
     frame_rec_count = 0
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-    while(True):
+    while (True):
         detected_motion = False
 
         ret, frame = cap.read()
@@ -55,13 +57,24 @@ def run_motion_detection(camera_index: int=0) -> None:
 
         # contours, borders around a white region in a binary mask that returns the region's outline
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        motion_boxes = []
         for contour in contours:
             if cv2.contourArea(contour) < 2750:
                 continue
+            motion_boxes.append(cv2.boundingRect(contour))
 
-            x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            detected_motion = True
+        if motion_boxes:
+            results = model(frame, verbose=False)
+            for result in results:
+                for box in result.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    label = result.names[int(box.cls[0])]
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                    cv2.rectangle(frame, (x1, y1 - text_h - 8), (x1 + text_w, y1), (0, 255, 0), -1)
+                    cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            if len(results[0].boxes) > 0:
+                detected_motion = True
             
         if detected_motion or recording: 
             if recording == False:
