@@ -1,10 +1,16 @@
 import cv2
+import json
 import numpy as np
 from datetime import datetime
 from pathlib import Path
 from ultralytics import YOLO
 
 CLIPS_DIR = Path(__file__).resolve().parent / "motion_detection_clips"
+CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+with CONFIG_PATH.open() as f:
+    CONFIG = json.load(f)
+CONFIG["bbox_color"] = tuple(CONFIG["bbox_color"])
+CONFIG["label_text_color"] = tuple(CONFIG["label_text_color"])
 
 
 def run_motion_detection(camera_index: int=0) -> None:
@@ -14,7 +20,7 @@ def run_motion_detection(camera_index: int=0) -> None:
     # apply thresholds like blurring and contouring
 
     cap = cv2.VideoCapture(camera_index)
-    model = YOLO("yolov8n.pt")
+    model = YOLO(CONFIG["model_path"])
     last_gray = None
 
     recording = False
@@ -26,7 +32,7 @@ def run_motion_detection(camera_index: int=0) -> None:
     window_size = (width, height)
 
     frame_rec_count = 0
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*CONFIG["video_codec"])
 
     while (True):
         detected_motion = False
@@ -40,7 +46,7 @@ def run_motion_detection(camera_index: int=0) -> None:
         '''
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (15, 15), 0)
+        gray = cv2.GaussianBlur(gray, (CONFIG["gaussian_blur_kernel"], CONFIG["gaussian_blur_kernel"]), CONFIG["gaussian_blur_sigma"])
 
         # runs once at beginning of the recording
         if last_gray is None:
@@ -52,14 +58,14 @@ def run_motion_detection(camera_index: int=0) -> None:
 
         # thresholding converts to a binary image and isolate motion areas
         diff = cv2.absdiff(last_gray, gray)
-        _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-        thresh = cv2.dilate(thresh, None, iterations=2)
+        _, thresh = cv2.threshold(diff, CONFIG["diff_threshold"], CONFIG["threshold_max"], cv2.THRESH_BINARY)
+        thresh = cv2.dilate(thresh, None, iterations=CONFIG["dilate_iterations"])
 
         # contours, borders around a white region in a binary mask that returns the region's outline
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         motion_boxes = []
         for contour in contours:
-            if cv2.contourArea(contour) < 2750:
+            if cv2.contourArea(contour) < CONFIG["min_contour_area"]:
                 continue
             motion_boxes.append(cv2.boundingRect(contour))
 
@@ -69,10 +75,10 @@ def run_motion_detection(camera_index: int=0) -> None:
                 for box in result.boxes:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     label = result.names[int(box.cls[0])]
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                    cv2.rectangle(frame, (x1, y1 - text_h - 8), (x1 + text_w, y1), (0, 255, 0), -1)
-                    cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), CONFIG["bbox_color"], CONFIG["bbox_thickness"])
+                    (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, CONFIG["label_font_scale"], CONFIG["label_font_thickness"])
+                    cv2.rectangle(frame, (x1, y1 - text_h - CONFIG["label_bg_padding"]), (x1 + text_w, y1), CONFIG["bbox_color"], -1)
+                    cv2.putText(frame, label, (x1, y1 - CONFIG["label_text_y_offset"]), cv2.FONT_HERSHEY_SIMPLEX, CONFIG["label_font_scale"], CONFIG["label_text_color"], CONFIG["label_font_thickness"])
             if len(results[0].boxes) > 0:
                 detected_motion = True
             
@@ -81,14 +87,14 @@ def run_motion_detection(camera_index: int=0) -> None:
                 print('Motion Detected, no recording in progress. Recording Started')
                 now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 clip_path = CLIPS_DIR / f'{now}.mp4'
-                out = cv2.VideoWriter(str(clip_path), fourcc, 30, window_size)
+                out = cv2.VideoWriter(str(clip_path), fourcc, CONFIG["recording_fps"], window_size)
 
                 recording = True
 
             else:
                 if detected_motion:
                     frame_rec_count = 0
-                if frame_rec_count == 300:
+                if frame_rec_count == CONFIG["post_motion_frames"]:
                     out.release()
                     recording = False
                     frame_rec_count = 0

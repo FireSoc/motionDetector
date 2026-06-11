@@ -1,0 +1,19 @@
+{
+  "model_path": "yolov8n.pt",
+  "gaussian_blur_kernel": 15,
+  "gaussian_blur_sigma": 0,
+  "diff_threshold": 25,
+  "threshold_max": 255,
+  "dilate_iterations": 2,
+  "min_contour_area": 2750,
+  "bbox_color": [0, 255, 0],
+  "bbox_thickness": 2,
+  "label_font_scale": 0.6,
+  "label_font_thickness": 2,
+  "label_bg_padding": 8,
+  "label_text_color": [0, 0, 0],
+  "label_text_y_offset": 5,
+  "recording_fps": 30,
+  "video_codec": "mp4v",
+  "post_motion_frames": 300
+}
