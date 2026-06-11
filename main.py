@@ -7,8 +7,10 @@ from ultralytics import YOLO
 
 CLIPS_DIR = Path(__file__).resolve().parent / "motion_detection_clips"
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+
 with CONFIG_PATH.open() as f:
     CONFIG = json.load(f)
+
 CONFIG["bbox_color"] = tuple(CONFIG["bbox_color"])
 CONFIG["label_text_color"] = tuple(CONFIG["label_text_color"])
 
@@ -21,7 +23,11 @@ def run_motion_detection(camera_index: int=0) -> None:
 
     cap = cv2.VideoCapture(camera_index)
     model = YOLO(CONFIG["model_path"])
-    last_gray = None
+    bg_subtractor = cv2.createBackgroundSubtractorMOG2(
+        history=CONFIG["bg_history"],
+        varThreshold=CONFIG["bg_var_threshold"],
+        detectShadows=CONFIG["bg_detect_shadows"],
+    )
 
     recording = False
     detected_motion = False
@@ -41,24 +47,16 @@ def run_motion_detection(camera_index: int=0) -> None:
         if not ret:
             break
 
-        ''' 
-        Can apply a bounding box to frames that have difference in pixels
-        '''
-
+        
+        # transforming to grayscale and blurring
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (CONFIG["gaussian_blur_kernel"], CONFIG["gaussian_blur_kernel"]), CONFIG["gaussian_blur_sigma"])
 
-        # runs once at beginning of the recording
-        if last_gray is None:
-            last_gray = gray
-            cv2.imshow('frame', frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            continue
+        # now we use MOG2 (mixture of Gaussians) to comapre the current gray to the background per pixel
+        fg_mask = bg_subtractor.apply(gray)
 
-        # thresholding converts to a binary image and isolate motion areas
-        diff = cv2.absdiff(last_gray, gray)
-        _, thresh = cv2.threshold(diff, CONFIG["diff_threshold"], CONFIG["threshold_max"], cv2.THRESH_BINARY)
+        # thresholding values with pxels above 25 to become 0 or 255
+        _, thresh = cv2.threshold(fg_mask, CONFIG["diff_threshold"], CONFIG["threshold_max"], cv2.THRESH_BINARY)
         thresh = cv2.dilate(thresh, None, iterations=CONFIG["dilate_iterations"])
 
         # contours, borders around a white region in a binary mask that returns the region's outline
@@ -69,6 +67,7 @@ def run_motion_detection(camera_index: int=0) -> None:
                 continue
             motion_boxes.append(cv2.boundingRect(contour))
 
+        # if there is motion, than YOLO runs on the original frame and we alter to show bb
         if motion_boxes:
             results = model(frame, verbose=False)
             for result in results:
@@ -103,7 +102,6 @@ def run_motion_detection(camera_index: int=0) -> None:
             out.write(frame)
             frame_rec_count += 1
 
-        last_gray = gray
         cv2.imshow('frame', frame)
 
         if (cv2.waitKey(1) & 0xFF == ord('q')):
