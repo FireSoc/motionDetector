@@ -14,6 +14,9 @@ with CONFIG_PATH.open() as f:
 CONFIG["bbox_color"] = tuple(CONFIG["bbox_color"])
 CONFIG["label_text_color"] = tuple(CONFIG["label_text_color"])
 
+# Ensure the output folder exists for anyone cloning the repo (it is gitignored).
+CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def run_motion_detection(camera_index: int=0) -> None:
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)
